@@ -15,12 +15,12 @@ use Laravel\Jetstream\Features;
 class UserFactory extends Factory
 {
     /**
-     * The current password being used by the factory.
+     * Contraseña por defecto cacheada para agilizar la generación en masa.
      */
     protected static ?string $password;
 
     /**
-     * Define the model's default state.
+     * Definición del estado base del usuario con campos de Artesa en español.
      *
      * @return array<string, mixed>
      */
@@ -31,6 +31,9 @@ class UserFactory extends Factory
             'email' => fake()->unique()->safeEmail(),
             'email_verified_at' => now(),
             'password' => static::$password ??= Hash::make('password'),
+            'phone' => fake()->boolean(80) ? fake()->numerify('6########') : null,
+            'avatar' => null,
+            'telegram_chat_id' => null,
             'two_factor_secret' => null,
             'two_factor_recovery_codes' => null,
             'remember_token' => Str::random(10),
@@ -40,7 +43,7 @@ class UserFactory extends Factory
     }
 
     /**
-     * Indicate that the model's email address should be unverified.
+     * Estado para usuario sin verificar email.
      */
     public function unverified(): static
     {
@@ -50,7 +53,40 @@ class UserFactory extends Factory
     }
 
     /**
-     * Indicate that the user should have a personal team.
+     * Estado para el Super Administrador del marketplace.
+     */
+    public function admin(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'name' => 'Administrador Artesa',
+            'email' => 'admin@artesa.local',
+        ]);
+    }
+
+    /**
+     * Estado para el Moderador de contenidos y disputas.
+     */
+    public function moderator(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'name' => 'Moderador Artesa',
+            'email' => 'moderador@artesa.local',
+        ]);
+    }
+
+    /**
+     * Estado para artesano titular de taller.
+     */
+    public function artisan(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'phone' => fake()->numerify('6########'),
+            'telegram_chat_id' => (string) fake()->numberBetween(100000000, 999999999),
+        ]);
+    }
+
+    /**
+     * Compatibilidad con equipos de Jetstream si están activos.
      */
     public function withPersonalTeam(?callable $callback = null): static
     {
