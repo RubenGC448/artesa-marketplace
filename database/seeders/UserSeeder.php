@@ -13,7 +13,7 @@ class UserSeeder extends Seeder
     {
         $defaultPassword = Hash::make('password');
 
-        // 1. Super Administrador
+        // 1. Super Administrador (Rol: admin)
         $admin = User::firstOrCreate(
             ['email' => 'admin@artesa.local'],
             [
@@ -23,8 +23,9 @@ class UserSeeder extends Seeder
                 'phone' => '600100200',
             ]
         );
+        $admin->syncRoles(['admin']);
 
-        // 2. Moderador de Contenidos y Disputas
+        // 2. Moderador de Contenidos y Disputas (Rol: moderator)
         $moderator = User::firstOrCreate(
             ['email' => 'moderador@artesa.local'],
             [
@@ -34,8 +35,21 @@ class UserSeeder extends Seeder
                 'phone' => '600100300',
             ]
         );
+        $moderator->syncRoles(['moderator']);
 
-        // 3. Los 5 Artesanos titulares de talleres
+        // 3. Repartidor de Logística Local (Rol: courier)
+        $courier = User::firstOrCreate(
+            ['email' => 'repartidor@artesa.local'],
+            [
+                'name' => 'Repartidor Local',
+                'password' => $defaultPassword,
+                'email_verified_at' => now(),
+                'phone' => '600100400',
+            ]
+        );
+        $courier->syncRoles(['courier']);
+
+        // 4. Los 5 Artesanos titulares de talleres (Rol: artisan)
         $artisans = [
             [
                 'name' => 'Mateo Benítez (Alfarero)',
@@ -70,7 +84,7 @@ class UserSeeder extends Seeder
         ];
 
         foreach ($artisans as $data) {
-            User::firstOrCreate(
+            $artisan = User::firstOrCreate(
                 ['email' => $data['email']],
                 [
                     'name' => $data['name'],
@@ -80,19 +94,22 @@ class UserSeeder extends Seeder
                     'telegram_chat_id' => $data['telegram_chat_id'],
                 ]
             );
+            $artisan->syncRoles(['artisan']);
         }
 
-        // 4. Clientes compradores con sus direcciones de entrega
+        // 5. Clientes compradores con sus direcciones de entrega (Rol: customer)
         $clients = User::factory()->count(10)->create();
 
         foreach ($clients as $client) {
+            $client->syncRoles(['customer']);
+
             // Dirección predeterminada obligatoria
             Address::factory()->default()->create([
                 'user_id' => $client->id,
                 'name' => $client->name,
             ]);
 
-            // En el 50% de los casos, añadimos una segunda dirección (ej: segunda residencia u oficina)
+            // En el 50% de los casos, añadimos una segunda dirección
             if (fake()->boolean(50)) {
                 Address::factory()->create([
                     'user_id' => $client->id,
