@@ -10,7 +10,8 @@ return new class extends Migration
     {
         Schema::create('payments', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('order_id')->constrained()->cascadeOnDelete();
+            // restrictOnDelete: un pago registrado nunca desaparece por borrar el pedido
+            $table->foreignId('order_id')->constrained()->restrictOnDelete();
             $table->decimal('amount', 10, 2);
             $table->string('method');                         // stripe, paypal, cash
             $table->string('status')->default('pending');     // pending, completed, failed, refunded

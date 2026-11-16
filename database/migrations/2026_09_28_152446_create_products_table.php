@@ -10,15 +10,17 @@ return new class extends Migration
     {
         Schema::create('products', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('shop_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('shop_id')->constrained()->restrictOnDelete();
             $table->foreignId('category_id')->nullable()->constrained()->nullOnDelete();
             $table->string('title');
             $table->string('slug')->unique();
             $table->text('description')->nullable();
             $table->decimal('base_price', 10, 2);
-            $table->unsignedInteger('stock')->default(0);
+            $table->unsignedInteger('stock')->default(0); // solo si el producto no tiene variantes
+            $table->decimal('tax_rate', 5, 2)->default(21.00); // tipo de IVA propio del producto
+            $table->date('available_from')->nullable(); // piezas bajo encargo / próxima hornada
             $table->string('sku')->unique()->nullable();
-            $table->string('status')->default('draft'); // draft, active, inactive
+            $table->string('status')->default('draft'); // draft, active, inactive (active = publicado en el catálogo)
             $table->boolean('featured')->default(false);
             $table->timestamps();
             $table->softDeletes();

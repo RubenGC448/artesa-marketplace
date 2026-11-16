@@ -18,6 +18,24 @@ class OrderShop extends Model
      *
      * @var array<int, string>
      */
+    public const STATUS_PENDING = 'pending';
+
+    public const STATUS_PREPARING = 'preparing';
+
+    public const STATUS_READY = 'ready';
+
+    public const STATUS_SHIPPED = 'shipped';
+
+    public const STATUS_DELIVERED = 'delivered';
+
+    public const STATUS_CANCELLED = 'cancelled';
+
+    /** Un taller solo puede cancelar su parte antes de enviarla. */
+    public const CANCELLABLE_STATUSES = [self::STATUS_PENDING, self::STATUS_PREPARING, self::STATUS_READY];
+
+    /** Transiciones que el artesano puede aplicar a su subpedido. */
+    public const ARTISAN_STATUSES = [self::STATUS_PREPARING, self::STATUS_READY, self::STATUS_SHIPPED];
+
     protected $fillable = [
         'order_id',
         'shop_id',

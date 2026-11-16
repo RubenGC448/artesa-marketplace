@@ -15,15 +15,23 @@ class OrderProductFactory extends Factory
 {
     protected $model = OrderProduct::class;
 
+    /**
+     * Línea coherente por defecto: el pedido se toma del subpedido y el
+     * producto se crea en el taller del subpedido (OrderLineGuard lo exige).
+     */
     public function definition(): array
     {
         $unitPrice = fake()->randomFloat(2, 15, 120);
 
         return [
-            'order_id' => Order::factory(),
             'order_shop_id' => OrderShop::factory(),
-            'product_id' => Product::factory(),
+            'order_id' => fn (array $attributes) => OrderShop::find($attributes['order_shop_id'])->order_id,
+            'product_id' => fn (array $attributes) => Product::factory()->create([
+                'shop_id' => OrderShop::find($attributes['order_shop_id'])->shop_id,
+            ])->id,
             'product_variant_id' => null,
+            'product_title' => fn (array $attributes) => Product::withTrashed()->find($attributes['product_id'])?->title,
+            'variant_name' => null,
             'quantity' => fake()->numberBetween(1, 3),
             'unit_price' => $unitPrice,
             'applied_tax' => 21.00,

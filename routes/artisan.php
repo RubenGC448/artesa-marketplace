@@ -1,34 +1,25 @@
 <?php
 
+use App\Http\Controllers\Artisan\DashboardController;
+use App\Http\Controllers\Artisan\ProductController;
+use App\Http\Controllers\Artisan\SuborderController;
 use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------
-| Rutas del Panel del Artesano (Artesa)
+| Panel del Artesano  (/artisan, artisan.*)
 |--------------------------------------------------------------------------
-| Protegidas con middleware web, auth y rol artisan.
+| Middleware: web, auth, role:artisan (bootstrap/app.php).
 */
 
-Route::get('/', function () {
-    $shop = auth()->user()->shop;
-    return response()->json([
-        'message' => 'Panel del Artesano',
-        'shop' => $shop ? $shop->only('id', 'name', 'is_verified') : null,
-    ]);
-})->name('dashboard');
+Route::get('/', DashboardController::class)->name('dashboard');
 
-Route::get('/products', function () {
-    $shop = auth()->user()->shop;
-    return response()->json([
-        'message' => 'Catálogo privado del taller',
-        'products' => $shop ? $shop->products()->with('variants')->get() : [],
-    ]);
-})->name('products.index');
+// CRUD del catálogo del taller (artisan.products.index|create|store|edit|update|destroy)
+Route::resource('products', ProductController::class)->except('show');
 
-Route::get('/orders', function () {
-    $shop = auth()->user()->shop;
-    return response()->json([
-        'message' => 'Subpedidos asignados a mi taller',
-        'suborders' => $shop ? $shop->orderShops()->with('orderProducts')->get() : [],
-    ]);
-})->name('orders.index');
+// Subpedidos asignados al taller
+Route::controller(SuborderController::class)->prefix('orders')->name('orders.')->group(function () {
+    Route::get('/', 'index')->name('index');
+    Route::patch('/{orderShop}/status', 'updateStatus')->name('update-status');
+    Route::patch('/{orderShop}/cancel', 'cancel')->name('cancel');
+});

@@ -39,6 +39,8 @@ class ProductFactory extends Factory
             'description' => fake()->paragraph(4),
             'base_price' => fake()->randomFloat(2, 18, 220),
             'stock' => fake()->numberBetween(1, 25),
+            'tax_rate' => fake()->randomElement([21.00, 21.00, 10.00]),
+            'available_from' => null,
             'sku' => fake()->unique()->regexify('[A-Z]{3}-[0-9]{4}'),
             'status' => 'active',
             'featured' => fake()->boolean(20),

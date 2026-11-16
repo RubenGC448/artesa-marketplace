@@ -93,5 +93,31 @@ class ShopSeeder extends Seeder
                 );
             }
         }
+
+        // Taller pendiente de verificación (para demostrar el flujo de moderación
+        // y el comando artesa:verify-shop)
+        $pendingArtisan = User::firstOrCreate(
+            ['email' => 'vidriero@artesa.local'],
+            [
+                'name' => 'Lucas Ortega (Vidriero)',
+                'password' => 'password',
+                'email_verified_at' => now(),
+                'phone' => '666778899',
+            ]
+        );
+        $pendingArtisan->syncRoles(['artisan']);
+
+        Shop::firstOrCreate(
+            ['slug' => 'vidrio-soplado-la-candela'],
+            [
+                'user_id' => $pendingArtisan->id,
+                'name' => 'Vidrio Soplado La Candela',
+                'cif_nif' => 'B41998877',
+                'craft_type' => 'Vidrio Soplado',
+                'bio' => 'Taller familiar de vidrio soplado a caña en horno de leña.',
+                'is_verified' => false,
+                'commission_rate' => config('artesa.default_commission_rate'),
+            ]
+        );
     }
 }

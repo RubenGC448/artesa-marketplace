@@ -58,7 +58,7 @@ class ShopPolicy
      */
     public function update(User $user, Shop $shop): bool
     {
-        return $user->id === $shop->user_id;
+        return $user->checkPermissionTo('shops.update') && $user->id === $shop->user_id;
     }
 
     /**
@@ -74,6 +74,6 @@ class ShopPolicy
      */
     public function verify(User $user, Shop $shop): bool
     {
-        return $user->hasRole('moderator');
+        return $user->checkPermissionTo('shops.verify');
     }
 }

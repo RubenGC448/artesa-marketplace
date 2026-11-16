@@ -3,7 +3,6 @@
 namespace App\Policies;
 
 use App\Models\Order;
-use App\Models\OrderShop;
 use App\Models\User;
 
 class OrderPolicy
@@ -21,23 +20,30 @@ class OrderPolicy
     }
 
     /**
-     * Visualización general de pedidos:
-     * El cliente ve su compra completa.
-     * El artesano solo tiene acceso si participa con un subpedido en esa compra.
+     * Listado de pedidos: cualquiera con permiso orders.view.
+     * Qué pedidos ve cada uno lo decide el scope Order::visibleTo().
+     */
+    public function viewAny(User $user): bool
+    {
+        return $user->checkPermissionTo('orders.view');
+    }
+
+    /**
+     * Visualización de un pedido:
+     *  - el cliente titular ve su compra completa;
+     *  - el moderador ve todos;
+     *  - el artesano solo si su taller tiene un subpedido en esa compra.
      */
     public function view(User $user, Order $order): bool
     {
-        // 1. El cliente titular de la compra
         if ($user->id === $order->customer_id) {
             return true;
         }
 
-        // 2. Personal de moderación
         if ($user->hasRole('moderator')) {
             return true;
         }
 
-        // 3. El artesano: solo si uno de los subpedidos pertenece a su taller
         if ($user->hasRole('artisan') && $user->shop) {
             return $order->orderShops()->where('shop_id', $user->shop->id)->exists();
         }
@@ -46,45 +52,31 @@ class OrderPolicy
     }
 
     /**
-     * Solo usuarios autenticados con rol cliente pueden tramitar pedidos.
+     * Solo usuarios con permiso de compra (rol cliente) pueden tramitar pedidos.
      */
     public function create(User $user): bool
     {
-        return $user->hasRole('customer');
+        return $user->checkPermissionTo('orders.create');
     }
 
     /**
-     * Cancelación por parte del comprador:
-     * Solo permitida si el pedido está en estado inicial ('pending' o 'paid'),
-     * nunca si los artesanos ya han iniciado la preparación o envío.
+     * Cancelación por parte del comprador: solo su pedido y solo en estado
+     * inicial (pending o paid), nunca si los talleres ya preparan o enviaron.
      */
     public function cancel(User $user, Order $order): bool
     {
-        if ($user->id !== $order->customer_id) {
+        if (! $user->checkPermissionTo('orders.cancel') || $user->id !== $order->customer_id) {
             return false;
         }
 
-        return in_array($order->status, ['pending', 'paid'], true);
+        return $order->isCancellable();
     }
 
     /**
-     * Aislamiento por subpedido (OrderShop):
-     * Un artesano SOLO puede gestionar, preparar o actualizar el subpedido de SU taller.
-     */
-    public function manageSuborder(User $user, OrderShop $orderShop): bool
-    {
-        if (! $user->hasRole('artisan') || ! $user->shop) {
-            return false;
-        }
-
-        return $user->shop->id === $orderShop->shop_id;
-    }
-
-    /**
-     * El repartidor solo puede gestionar envíos y actualizar estados de transporte.
+     * El repartidor actualiza estados de transporte.
      */
     public function updateDeliveryStatus(User $user, Order $order): bool
     {
-        return $user->hasRole('courier');
+        return $user->hasRole('courier') && $user->checkPermissionTo('orders.update_status');
     }
 }

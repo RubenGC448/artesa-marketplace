@@ -3,6 +3,7 @@
 namespace App\Policies;
 
 use App\Models\Dispute;
+use App\Models\Order;
 use App\Models\User;
 
 class DisputePolicy
@@ -44,9 +45,21 @@ class DisputePolicy
      * Participar con mensajes en la disputa:
      * Si no está cerrada, pueden responder el comprador, el artesano o el moderador.
      */
+    /**
+     * Abrir una disputa: el comprador, sobre un pedido suyo.
+     */
+    public function create(User $user, Order $order): bool
+    {
+        return $user->checkPermissionTo('disputes.open') && $user->id === $order->customer_id;
+    }
+
     public function reply(User $user, Dispute $dispute): bool
     {
         if (in_array($dispute->status, ['resolved', 'closed'], true)) {
+            return false;
+        }
+
+        if (! $user->checkPermissionTo('disputes.reply')) {
             return false;
         }
 
@@ -59,6 +72,7 @@ class DisputePolicy
      */
     public function resolve(User $user, Dispute $dispute): bool
     {
-        return $user->hasRole('moderator');
+        return $user->checkPermissionTo('disputes.resolve')
+            && ! in_array($dispute->status, ['resolved', 'closed'], true);
     }
 }

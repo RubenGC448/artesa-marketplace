@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -66,5 +67,21 @@ class ProductVariant extends Model
     public function cartItems(): HasMany
     {
         return $this->hasMany(CartItem::class);
+    }
+
+    /**
+     * Precio final de la variante (precio base del producto + modificador).
+     */
+    public function getFinalPriceAttribute(): float
+    {
+        return round((float) $this->product->base_price + (float) $this->price_modifier, 2);
+    }
+
+    /**
+     * Scope: variantes con stock igual o inferior al umbral.
+     */
+    public function scopeLowStock(Builder $query, int $threshold): Builder
+    {
+        return $query->where('stock', '<=', $threshold);
     }
 }

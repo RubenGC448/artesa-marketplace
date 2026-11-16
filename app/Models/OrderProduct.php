@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\Orders\OrderLineGuard;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\Pivot;
@@ -17,6 +18,14 @@ class OrderProduct extends Pivot
      * @var string
      */
     protected $table = 'order_product';
+
+    public const STATUS_PENDING = 'pending';
+
+    public const STATUS_PREPARING = 'preparing';
+
+    public const STATUS_READY = 'ready';
+
+    public const STATUS_CANCELLED = 'cancelled';
 
     /**
      * Indica si el ID es autoincremental (posee clave primaria id).
@@ -35,6 +44,8 @@ class OrderProduct extends Pivot
         'order_shop_id',
         'product_id',
         'product_variant_id',
+        'product_title',
+        'variant_name',
         'quantity',
         'unit_price',
         'applied_tax',
@@ -56,6 +67,17 @@ class OrderProduct extends Pivot
             'applied_tax' => 'decimal:2',
             'artisan_commission_rate' => 'decimal:2',
         ];
+    }
+
+    /**
+     * Antes de guardar cualquier línea (create, attach con pivote o update)
+     * se comprueba su coherencia con pedido, subpedido, taller y variante.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (OrderProduct $line) {
+            app(OrderLineGuard::class)->assertConsistent($line);
+        });
     }
 
     /*
@@ -121,5 +143,15 @@ class OrderProduct extends Pivot
         $netPerUnit = $unitPrice - $commissionPerUnit;
 
         return round($netPerUnit * (int) $this->quantity, 2);
+    }
+
+    /**
+     * Cuota de IVA incluida en el subtotal de la línea (precios con IVA incluido).
+     */
+    public function getTaxAmountAttribute(): float
+    {
+        $rate = (float) $this->applied_tax;
+
+        return round($this->subtotal - ($this->subtotal / (1 + $rate / 100)), 2);
     }
 }

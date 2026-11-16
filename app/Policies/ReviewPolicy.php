@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Models\Order;
 use App\Models\Product;
 use App\Models\Review;
 use App\Models\User;
@@ -28,7 +29,7 @@ class ReviewPolicy
     public function create(User $user, Product $product): bool
     {
         // 1. Debe tener rol customer
-        if (! $user->hasRole('customer')) {
+        if (! $user->checkPermissionTo('reviews.create')) {
             return false;
         }
 
@@ -43,7 +44,7 @@ class ReviewPolicy
 
         // 3. Comprobar que existe una compra con estado 'delivered' que incluya este producto
         return $user->orders()
-            ->where('status', 'delivered')
+            ->where('status', Order::STATUS_DELIVERED)
             ->whereHas('orderProducts', function ($query) use ($product) {
                 $query->where('product_id', $product->id);
             })
@@ -56,7 +57,7 @@ class ReviewPolicy
      */
     public function reply(User $user, Review $review): bool
     {
-        if (! $user->hasRole('artisan') || ! $user->shop) {
+        if (! $user->checkPermissionTo('reviews.reply') || ! $user->shop) {
             return false;
         }
 
@@ -69,6 +70,6 @@ class ReviewPolicy
      */
     public function delete(User $user, Review $review): bool
     {
-        return $user->id === $review->customer_id || $user->hasRole('moderator');
+        return $user->id === $review->customer_id || $user->checkPermissionTo('reviews.moderate');
     }
 }

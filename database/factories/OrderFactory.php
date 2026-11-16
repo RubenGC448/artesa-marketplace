@@ -29,7 +29,21 @@ class OrderFactory extends Factory
             'shipping_cost' => $shipping,
             'total' => $total,
             'notes' => fake()->boolean(25) ? fake()->sentence() : null,
+            'shipping_name' => fake()->name(),
+            'shipping_phone' => fake()->numerify('6########'),
+            'shipping_street' => fake()->streetAddress(),
+            'shipping_city' => fake()->city(),
+            'shipping_province' => fake()->state(),
+            'shipping_postal_code' => fake()->numerify('#####'),
+            'shipping_country' => 'ES',
         ];
+    }
+
+    public function pending(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'status' => 'pending',
+        ]);
     }
 
     public function paid(): static

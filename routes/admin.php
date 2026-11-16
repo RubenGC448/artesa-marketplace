@@ -1,31 +1,23 @@
 <?php
 
+use App\Http\Controllers\Admin\DashboardController;
+use App\Http\Controllers\Admin\DisputeController;
+use App\Http\Controllers\Admin\ShopVerificationController;
 use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------
-| Rutas del Panel de Administración y Moderación (Artesa)
+| Panel de Administración y Moderación  (/admin, admin.*)
 |--------------------------------------------------------------------------
-| Protegidas con middleware web, auth y rol admin o moderator.
+| Middleware: web, auth, role:admin|moderator (bootstrap/app.php).
 */
 
-Route::get('/', function () {
-    return response()->json([
-        'message' => 'Panel de Administración y Moderación de Artesa',
-        'user' => auth()->user()->only('id', 'name', 'email'),
-    ]);
-})->name('dashboard');
+Route::get('/', DashboardController::class)->name('dashboard');
 
-Route::get('/shops/pending', function () {
-    return response()->json([
-        'message' => 'Listado de talleres pendientes de verificación',
-        'shops' => \App\Models\Shop::where('is_verified', false)->get(),
-    ]);
-})->name('shops.pending');
+Route::controller(ShopVerificationController::class)->prefix('talleres')->name('shops.')->group(function () {
+    Route::get('/pendientes', 'index')->name('pending');
+    Route::patch('/{shop}/verificar', 'verify')->name('verify');
+    Route::patch('/{shop}/retirar-verificacion', 'revoke')->name('revoke');
+});
 
-Route::get('/disputes', function () {
-    return response()->json([
-        'message' => 'Listado de disputas e incidencias de la plataforma',
-        'disputes' => \App\Models\Dispute::with('order')->get(),
-    ]);
-})->name('disputes.index');
+Route::get('/disputas', [DisputeController::class, 'index'])->name('disputes.index');

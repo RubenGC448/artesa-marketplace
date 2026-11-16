@@ -11,7 +11,8 @@ return new class extends Migration
         Schema::create('order_shops', function (Blueprint $table) {
             $table->id();
             $table->foreignId('order_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('shop_id')->constrained()->cascadeOnDelete();
+            // restrictOnDelete: un taller con ventas no puede borrarse físicamente
+            $table->foreignId('shop_id')->constrained()->restrictOnDelete();
             // Estado independiente por tienda dentro del pedido global
             $table->string('status')->default('pending'); // pending, preparing, ready, shipped, delivered, cancelled
             $table->decimal('subtotal', 10, 2);

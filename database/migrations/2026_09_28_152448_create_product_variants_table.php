@@ -14,7 +14,7 @@ return new class extends Migration
             $table->string('name');
             $table->string('sku')->unique()->nullable();
             $table->decimal('price_modifier', 10, 2)->default(0.00);
-            $table->unsignedInteger('stock')->default(0);
+            $table->unsignedInteger('stock')->default(0); // el stock de un producto con variantes vive aquí
             $table->timestamps();
         });
     }

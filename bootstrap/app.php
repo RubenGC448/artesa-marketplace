@@ -1,5 +1,6 @@
 <?php
 
+use App\Exceptions\Domain\ArtesaDomainException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -47,4 +48,14 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
         );
+
+        // Reglas de negocio incumplidas (stock, estados, coherencia...):
+        // se vuelve atrás con el mensaje en lugar de mostrar un error 500.
+        $exceptions->render(function (ArtesaDomainException $e, Request $request) {
+            if ($request->expectsJson() || $request->is('api/*')) {
+                return response()->json(['message' => $e->getMessage()], 422);
+            }
+
+            return back()->with('error', $e->getMessage());
+        });
     })->create();

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -15,6 +16,21 @@ class Order extends Model
     use HasFactory;
 
     use SoftDeletes;
+
+    public const STATUS_PENDING = 'pending';
+
+    public const STATUS_PAID = 'paid';
+
+    public const STATUS_PREPARING = 'preparing';
+
+    public const STATUS_SHIPPED = 'shipped';
+
+    public const STATUS_DELIVERED = 'delivered';
+
+    public const STATUS_CANCELLED = 'cancelled';
+
+    /** Estados en los que el comprador aún puede cancelar. */
+    public const CANCELLABLE_STATUSES = [self::STATUS_PENDING, self::STATUS_PAID];
 
     /**
      * Atributos asignables en masa.
@@ -30,6 +46,13 @@ class Order extends Model
         'shipping_cost',
         'total',
         'notes',
+        'shipping_name',
+        'shipping_phone',
+        'shipping_street',
+        'shipping_city',
+        'shipping_province',
+        'shipping_postal_code',
+        'shipping_country',
     ];
 
     /**
@@ -95,6 +118,8 @@ class Order extends Model
             ->withPivot([
                 'order_shop_id',
                 'product_variant_id',
+                'product_title',
+                'variant_name',
                 'quantity',
                 'unit_price',
                 'applied_tax',
@@ -135,5 +160,85 @@ class Order extends Model
     public function disputes(): HasMany
     {
         return $this->hasMany(Dispute::class);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Dirección de envío congelada (corrección Sprint 2)
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * Copia los datos de una dirección en las columnas shipping_* del pedido.
+     * A partir de aquí, editar o borrar la dirección original no altera la venta.
+     */
+    public static function shippingSnapshotFrom(Address $address): array
+    {
+        return [
+            'address_id' => $address->id,
+            'shipping_name' => $address->name,
+            'shipping_phone' => $address->phone,
+            'shipping_street' => $address->street,
+            'shipping_city' => $address->city,
+            'shipping_province' => $address->province,
+            'shipping_postal_code' => $address->postal_code,
+            'shipping_country' => $address->country,
+        ];
+    }
+
+    public function getShippingAddressLineAttribute(): string
+    {
+        return "{$this->shipping_street}, {$this->shipping_postal_code} {$this->shipping_city} "
+            ."({$this->shipping_province}), {$this->shipping_country}";
+    }
+
+    public function isCancellable(): bool
+    {
+        return in_array($this->status, self::CANCELLABLE_STATUSES, true);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Scopes
+    |--------------------------------------------------------------------------
+    */
+
+    /**
+     * Scope simple: pedidos en uno o varios estados.
+     */
+    public function scopeWithStatus(Builder $query, string|array $status): Builder
+    {
+        return $query->whereIn('status', (array) $status);
+    }
+
+    /**
+     * Scope complejo: pedidos que un usuario puede ver según su rol.
+     *  - admin / moderator: todos.
+     *  - artisan: solo los pedidos en los que su taller tiene un subpedido.
+     *  - resto (customer): solo sus propias compras.
+     */
+    public function scopeVisibleTo(Builder $query, User $user): Builder
+    {
+        if ($user->hasAnyRole(['admin', 'moderator'])) {
+            return $query;
+        }
+
+        if ($user->hasRole('artisan')) {
+            $shopId = $user->shop?->id;
+
+            return $query->whereHas('orderShops', fn (Builder $q) => $q->where('shop_id', $shopId ?? 0));
+        }
+
+        return $query->where('customer_id', $user->id);
+    }
+
+    /**
+     * Scope: pedidos pendientes de pago creados antes de una fecha.
+     */
+    public function scopeUnpaidOlderThan(Builder $query, \DateTimeInterface $limit): Builder
+    {
+        return $query->where('status', self::STATUS_PENDING)
+            ->where('created_at', '<', $limit)
+            ->whereDoesntHave('payments', fn (Builder $q) => $q->where('status', 'completed'));
     }
 }

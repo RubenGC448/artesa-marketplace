@@ -2,183 +2,205 @@
 
 namespace Database\Seeders;
 
+use App\Exceptions\Domain\ArtesaDomainException;
 use App\Models\Address;
 use App\Models\Order;
+use App\Models\OrderProduct;
 use App\Models\OrderShop;
 use App\Models\OrderStatusHistory;
 use App\Models\Payment;
 use App\Models\Product;
 use App\Models\Shipment;
-use App\Models\Shop;
 use App\Models\User;
+use App\Services\Orders\CheckoutService;
+use App\Services\Orders\OrderCancellationService;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Collection;
 
+/**
+ * Pedidos de prueba creados con el mismo servicio que usa la aplicación
+ * (CheckoutService), de modo que precios, IVA, comisión, dirección y stock
+ * quedan congelados y coherentes igual que en una compra real.
+ */
 class OrderSeeder extends Seeder
 {
+    public function __construct(
+        private CheckoutService $checkout,
+        private OrderCancellationService $cancellation,
+    ) {
+    }
+
     public function run(): void
     {
-        // Clientes compradores (excluyendo admin, moderador y artesanos)
-        $clients = User::whereNotIn('email', [
-            'admin@artesa.local',
-            'moderador@artesa.local',
-            'alfarero@artesa.local',
-            'ebanista@artesa.local',
-            'marroquinero@artesa.local',
-            'joyero@artesa.local',
-            'textil@artesa.local',
-        ])->get();
+        $customers = User::role('customer')->with('addresses')->get();
+        $products = Product::inCatalog()->with('variants')->get();
 
-        if ($clients->isEmpty()) {
+        if ($customers->isEmpty() || $products->isEmpty()) {
             return;
         }
 
-        $allProducts = Product::with(['shop', 'variants'])->get();
-        if ($allProducts->isEmpty()) {
+        $this->seedDemoOrder($customers->first(), $products);
+        $this->seedRandomOrders($customers, $products);
+    }
+
+    /**
+     * Pedido de demostración pedido en la corrección del Sprint 2:
+     *  - dos talleres,
+     *  - dos variantes del mismo producto en el mismo subpedido,
+     *  - cancelación parcial (se cancela la parte del segundo taller).
+     */
+    private function seedDemoOrder(User $customer, Collection $products): void
+    {
+        $withTwoVariants = $products->first(
+            fn (Product $p) => $p->variants->where('stock', '>', 0)->count() >= 2
+        );
+
+        if (! $withTwoVariants) {
             return;
         }
 
-        $orderStatuses = ['delivered', 'delivered', 'shipped', 'preparing', 'paid', 'pending'];
+        $otherShopProduct = $products->first(
+            fn (Product $p) => $p->shop_id !== $withTwoVariants->shop_id && $p->available_stock > 0
+        );
+
+        if (! $otherShopProduct) {
+            return;
+        }
+
+        [$variantA, $variantB] = $withTwoVariants->variants->where('stock', '>', 0)->take(2)->values()->all();
+
+        $order = $this->checkout->placeOrder($customer, $this->addressOf($customer), [
+            ['product_id' => $withTwoVariants->id, 'variant_id' => $variantA->id, 'quantity' => 1],
+            ['product_id' => $withTwoVariants->id, 'variant_id' => $variantB->id, 'quantity' => 1],
+            $this->itemFor($otherShopProduct),
+        ], 'Pedido de demostración: dos talleres, dos variantes y cancelación parcial.');
+
+        $order->update(['order_number' => 'ART-2026-DEMO']);
+        $this->markAsPaid($order);
+
+        // Cancelación parcial: el segundo taller no puede servir su parte
+        $secondSuborder = $order->orderShops()->where('shop_id', $otherShopProduct->shop_id)->first();
+        $this->cancellation->cancelSuborder($secondSuborder);
+    }
+
+    private function seedRandomOrders(Collection $customers, Collection $products): void
+    {
+        $statuses = ['delivered', 'delivered', 'shipped', 'preparing', 'paid', 'pending'];
+        $byShop = $products->groupBy('shop_id');
 
         for ($i = 1; $i <= 12; $i++) {
-            $client = $clients->random();
-            $address = $client->defaultAddress ?? Address::factory()->create(['user_id' => $client->id]);
+            $customer = $customers->random();
+            $shopsInOrder = $i % 2 === 0 && $byShop->count() > 1 ? 2 : 1;
 
-            // En pedidos pares, mezclamos productos de 2 tiendas distintas (pedido multi-tienda)
-            // En pedidos impares, productos de 1 sola tienda
-            $isMultiShop = ($i % 2 === 0);
+            $items = $byShop->random($shopsInOrder)
+                ->map(fn (Collection $shopProducts) => $shopProducts->filter(fn (Product $p) => $p->available_stock > 0))
+                ->filter(fn (Collection $shopProducts) => $shopProducts->isNotEmpty())
+                ->map(fn (Collection $shopProducts) => $this->itemFor($shopProducts->random()))
+                ->values()
+                ->all();
 
-            if ($isMultiShop) {
-                // Seleccionamos productos de 2 tiendas distintas
-                $sampleProducts = $allProducts->groupBy('shop_id')->random(2)->map(fn ($group) => $group->random());
-            } else {
-                $shopGroup = $allProducts->groupBy('shop_id')->random();
-                $sampleProducts = $shopGroup->random(min(2, $shopGroup->count()));
+            if ($items === []) {
+                continue;
             }
 
-            $orderNumber = sprintf('ART-2026-%04d', $i);
-            $status = $orderStatuses[($i - 1) % count($orderStatuses)];
-
-            // Creamos el pedido cabecera
-            $order = Order::create([
-                'order_number' => $orderNumber,
-                'customer_id' => $client->id,
-                'address_id' => $address->id,
-                'status' => $status,
-                'subtotal' => 0.00,
-                'shipping_cost' => 0.00,
-                'total' => 0.00,
-                'notes' => fake()->boolean(30) ? 'Por favor, dejar en conserjería si no estoy en casa.' : null,
-                'created_at' => now()->subDays(15 - $i),
-                'updated_at' => now()->subDays(15 - $i),
-            ]);
-
-            $orderSubtotal = 0.00;
-            $orderShipping = 0.00;
-
-            // Agrupamos los productos elegidos por tienda
-            $productsByShop = $sampleProducts->groupBy('shop_id');
-
-            foreach ($productsByShop as $shopId => $products) {
-                $shop = Shop::find($shopId);
-                $shopSubtotal = 0.00;
-                $shopShipping = 4.95; // Tarifa plana por tienda
-
-                $shopStatus = match ($status) {
-                    'delivered' => 'delivered',
-                    'shipped' => 'shipped',
-                    'preparing' => 'preparing',
-                    'paid' => 'pending',
-                    default => 'pending',
-                };
-
-                $orderShop = OrderShop::create([
-                    'order_id' => $order->id,
-                    'shop_id' => $shop->id,
-                    'status' => $shopStatus,
-                    'subtotal' => 0.00,
-                    'shipping_cost' => $shopShipping,
-                    'total' => 0.00,
-                    'created_at' => $order->created_at,
-                    'updated_at' => $order->updated_at,
-                ]);
-
-                foreach ($products as $product) {
-                    $qty = fake()->numberBetween(1, 2);
-                    $variant = $product->variants->isNotEmpty() ? $product->variants->random() : null;
-                    $unitPrice = (float) $product->base_price + ($variant ? (float) $variant->price_modifier : 0.00);
-
-                    // Congelamos la línea en la tabla pivote
-                    $order->products()->attach($product->id, [
-                        'order_shop_id' => $orderShop->id,
-                        'product_variant_id' => $variant?->id,
-                        'quantity' => $qty,
-                        'unit_price' => $unitPrice,
-                        'applied_tax' => 21.00,
-                        'artisan_commission_rate' => $shop->commission_rate,
-                        'line_status' => $shopStatus === 'delivered' ? 'ready' : 'pending',
-                        'customization_notes' => null,
-                        'created_at' => $order->created_at,
-                        'updated_at' => $order->updated_at,
-                    ]);
-
-                    $shopSubtotal += ($unitPrice * $qty);
-                }
-
-                $orderShop->update([
-                    'subtotal' => $shopSubtotal,
-                    'total' => $shopSubtotal + $shopShipping,
-                ]);
-
-                $orderSubtotal += $shopSubtotal;
-                $orderShipping += $shopShipping;
-
-                // Generamos envío para cada tienda si el pedido ya fue despachado o entregado
-                if (in_array($status, ['shipped', 'delivered'])) {
-                    $carrier = fake()->randomElement(['MRW', 'SEUR', 'Correos Express']);
-                    Shipment::create([
-                        'order_shop_id' => $orderShop->id,
-                        'carrier' => $carrier,
-                        'tracking_number' => strtoupper(substr($carrier, 0, 3)) . '-' . fake()->numerify('##########'),
-                        'status' => $status === 'delivered' ? 'delivered' : 'in_transit',
-                        'shipped_at' => $order->created_at->addDay(),
-                        'delivered_at' => $status === 'delivered' ? $order->created_at->addDays(3) : null,
-                        'created_at' => $order->created_at->addDay(),
-                    ]);
-                }
+            try {
+                $order = $this->checkout->placeOrder(
+                    $customer,
+                    $this->addressOf($customer),
+                    $items,
+                    fake()->boolean(30) ? 'Por favor, dejar en conserjería si no estoy en casa.' : null,
+                );
+            } catch (ArtesaDomainException) {
+                continue; // sin stock suficiente: se omite este pedido de ejemplo
             }
 
-            // Actualizamos los importes totales consolidados del pedido
-            $order->update([
-                'subtotal' => $orderSubtotal,
-                'shipping_cost' => $orderShipping,
-                'total' => $orderSubtotal + $orderShipping,
-            ]);
+            $createdAt = now()->subDays(15 - $i);
+            $order->forceFill(['order_number' => sprintf('ART-2026-%04d', $i), 'created_at' => $createdAt, 'updated_at' => $createdAt])->save();
 
-            // Registro de pago si el pedido no está pendiente
-            if ($status !== 'pending') {
-                Payment::create([
-                    'order_id' => $order->id,
-                    'amount' => $orderSubtotal + $orderShipping,
-                    'method' => fake()->randomElement(['stripe', 'paypal']),
-                    'status' => 'completed',
-                    'external_reference' => 'ch_' . fake()->regexify('[A-Za-z0-9]{24}'),
-                    'paid_at' => $order->created_at,
-                    'created_at' => $order->created_at,
-                ]);
-
-                OrderStatusHistory::create([
-                    'order_id' => $order->id,
-                    'status' => 'paid',
-                    'created_at' => $order->created_at,
-                ]);
-            }
-
-            // Historial de auditoría
-            OrderStatusHistory::create([
-                'order_id' => $order->id,
-                'status' => $status,
-                'created_at' => $order->updated_at,
-            ]);
+            $this->applyStatus($order, $statuses[($i - 1) % count($statuses)]);
         }
+    }
+
+    private function applyStatus(Order $order, string $status): void
+    {
+        if ($status === Order::STATUS_PENDING) {
+            return; // recién creado: sin pago
+        }
+
+        $this->markAsPaid($order);
+
+        if ($status === Order::STATUS_PAID) {
+            return;
+        }
+
+        [$suborderStatus, $lineStatus] = match ($status) {
+            'preparing' => [OrderShop::STATUS_PREPARING, OrderProduct::STATUS_PREPARING],
+            'shipped' => [OrderShop::STATUS_SHIPPED, OrderProduct::STATUS_READY],
+            default => [OrderShop::STATUS_DELIVERED, OrderProduct::STATUS_READY],
+        };
+
+        foreach ($order->orderShops as $orderShop) {
+            $orderShop->update(['status' => $suborderStatus]);
+            $orderShop->orderProducts->each->update(['line_status' => $lineStatus]);
+
+            if (in_array($status, ['shipped', 'delivered'], true)) {
+                $carrier = fake()->randomElement(['MRW', 'SEUR', 'Correos Express']);
+
+                Shipment::create([
+                    'order_shop_id' => $orderShop->id,
+                    'carrier' => $carrier,
+                    'tracking_number' => strtoupper(substr($carrier, 0, 3)).'-'.fake()->numerify('##########'),
+                    'status' => $status === 'delivered' ? 'delivered' : 'in_transit',
+                    'shipped_at' => $order->created_at->copy()->addDay(),
+                    'delivered_at' => $status === 'delivered' ? $order->created_at->copy()->addDays(3) : null,
+                ]);
+            }
+        }
+
+        $order->update(['status' => $status]);
+
+        OrderStatusHistory::create([
+            'order_id' => $order->id,
+            'status' => $status,
+            'created_at' => $order->created_at->copy()->addDays(2),
+        ]);
+    }
+
+    private function markAsPaid(Order $order): void
+    {
+        Payment::create([
+            'order_id' => $order->id,
+            'amount' => $order->total,
+            'method' => fake()->randomElement(['stripe', 'paypal']),
+            'status' => 'completed',
+            'external_reference' => 'ch_'.fake()->regexify('[A-Za-z0-9]{24}'),
+            'paid_at' => $order->created_at,
+        ]);
+
+        $order->update(['status' => Order::STATUS_PAID]);
+
+        OrderStatusHistory::create([
+            'order_id' => $order->id,
+            'status' => Order::STATUS_PAID,
+            'created_at' => $order->created_at,
+        ]);
+    }
+
+    private function itemFor(Product $product): array
+    {
+        $variant = $product->variants->where('stock', '>', 0)->shuffle()->first();
+
+        return [
+            'product_id' => $product->id,
+            'variant_id' => $variant?->id,
+            'quantity' => 1,
+        ];
+    }
+
+    private function addressOf(User $customer): Address
+    {
+        return $customer->addresses->firstWhere('is_default', true)
+            ?? $customer->addresses->first()
+            ?? Address::factory()->default()->create(['user_id' => $customer->id]);
     }
 }

@@ -1,24 +1,17 @@
 <?php
 
+use App\Http\Controllers\Courier\DashboardController;
+use App\Http\Controllers\Courier\ShipmentController;
 use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------
-| Rutas del Panel de Reparto y Logística Local (Artesa)
+| Panel de Reparto  (/courier, courier.*)
 |--------------------------------------------------------------------------
-| Protegidas con middleware web, auth y rol courier.
+| Middleware: web, auth, role:courier (bootstrap/app.php).
 */
 
-Route::get('/', function () {
-    return response()->json([
-        'message' => 'Panel de Rutas y Reparto de Artesa',
-        'user' => auth()->user()->only('id', 'name', 'email'),
-    ]);
-})->name('dashboard');
+Route::get('/', DashboardController::class)->name('dashboard');
 
-Route::get('/shipments', function () {
-    return response()->json([
-        'message' => 'Envíos locales pendientes de entrega',
-        'shipments' => \App\Models\Shipment::where('status', '!=', 'delivered')->with('orderShop.shop')->get(),
-    ]);
-})->name('shipments.index');
+Route::get('/shipments', [ShipmentController::class, 'index'])->name('shipments.index');
+Route::patch('/shipments/{shipment}', [ShipmentController::class, 'update'])->name('shipments.update');

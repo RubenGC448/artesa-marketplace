@@ -1,50 +1,74 @@
 <?php
 
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use App\Models\Address;
+use App\Models\Order;
+use App\Models\Product;
+use App\Models\Shop;
+use App\Models\User;
+use App\Services\Orders\CheckoutService;
 use Tests\TestCase;
 
 /*
 |--------------------------------------------------------------------------
 | Test Case
 |--------------------------------------------------------------------------
-|
-| The closure you provide to your test functions is always bound to a specific PHPUnit test
-| case class. By default, that class is "PHPUnit\Framework\TestCase". Of course, you may
-| need to change it using the "pest()" function to bind different classes or traits.
-|
+| Los tests de Feature usan Tests\TestCase. Cada fichero declara
+| uses(RefreshDatabase::class) y siembra los roles en beforeEach.
 */
 
 pest()->extend(TestCase::class)
- // ->use(RefreshDatabase::class)
     ->in('Feature');
 
 /*
 |--------------------------------------------------------------------------
-| Expectations
+| Helpers de dominio para los tests
 |--------------------------------------------------------------------------
-|
-| When you're writing tests, you often need to check that values meet certain conditions. The
-| "expect()" function gives you access to a set of "expectations" methods that you can use
-| to assert different things. Of course, you may extend the Expectation API at any time.
-|
+| Requieren que RoleAndPermissionSeeder se haya ejecutado antes.
 */
 
-expect()->extend('toBeOne', function () {
-    return $this->toBe(1);
-});
-
-/*
-|--------------------------------------------------------------------------
-| Functions
-|--------------------------------------------------------------------------
-|
-| While Pest is very powerful out-of-the-box, you may have some testing code specific to your
-| project that you don't want to repeat in every file. Here you can also expose helpers as
-| global functions to help you to reduce the number of lines of code in your test files.
-|
-*/
-
-function something()
+function userWithRole(string $role, array $attributes = []): User
 {
-    // ..
+    $user = User::factory()->create($attributes);
+    $user->assignRole($role);
+
+    return $user;
+}
+
+function artisanWithShop(array $shopAttributes = []): User
+{
+    $artisan = userWithRole('artisan');
+
+    Shop::factory()->create(array_merge(['user_id' => $artisan->id, 'is_verified' => true], $shopAttributes));
+
+    return $artisan->load('shop');
+}
+
+function customerWithAddress(): User
+{
+    $customer = userWithRole('customer');
+
+    Address::factory()->default()->create(['user_id' => $customer->id, 'name' => $customer->name]);
+
+    return $customer->load('addresses');
+}
+
+function catalogProduct(Shop $shop, array $attributes = []): Product
+{
+    return Product::factory()->create(array_merge([
+        'shop_id' => $shop->id,
+        'status' => Product::STATUS_ACTIVE,
+        'stock' => 10,
+        'base_price' => 50.00,
+        'tax_rate' => 21.00,
+    ], $attributes));
+}
+
+/**
+ * Compra real a través del servicio de checkout.
+ *
+ * @param  array<int, array{product_id:int, variant_id?:int|null, quantity:int}>  $items
+ */
+function checkout(User $customer, array $items): Order
+{
+    return app(CheckoutService::class)->placeOrder($customer, $customer->addresses->first(), $items);
 }

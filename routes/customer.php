@@ -1,31 +1,23 @@
 <?php
 
+use App\Http\Controllers\Customer\AddressController;
+use App\Http\Controllers\Customer\DashboardController;
+use App\Http\Controllers\Customer\OrderController;
 use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------
-| Rutas del Panel del Cliente Comprador (Artesa)
+| Área privada del Cliente  (/customer, customer.*)
 |--------------------------------------------------------------------------
-| Protegidas con middleware web, auth y rol customer.
+| Middleware: web, auth, role:customer (bootstrap/app.php).
 */
 
-Route::get('/', function () {
-    return response()->json([
-        'message' => 'Área Privada del Cliente',
-        'user' => auth()->user()->only('id', 'name', 'email'),
-    ]);
-})->name('dashboard');
+Route::get('/', DashboardController::class)->name('dashboard');
 
-Route::get('/orders', function () {
-    return response()->json([
-        'message' => 'Mis compras realizadas en Artesa',
-        'orders' => auth()->user()->orders()->with('orderShops.shop')->latest()->get(),
-    ]);
-})->name('orders.index');
+Route::controller(OrderController::class)->prefix('orders')->name('orders.')->group(function () {
+    Route::get('/', 'index')->name('index');
+    Route::get('/{order}', 'show')->name('show');
+    Route::patch('/{order}/cancel', 'cancel')->name('cancel');
+});
 
-Route::get('/addresses', function () {
-    return response()->json([
-        'message' => 'Mis direcciones de entrega',
-        'addresses' => auth()->user()->addresses,
-    ]);
-})->name('addresses.index');
+Route::get('/addresses', [AddressController::class, 'index'])->name('addresses.index');

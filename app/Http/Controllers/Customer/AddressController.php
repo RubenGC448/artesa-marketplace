@@ -1,0 +1,16 @@
+<?php
+
+namespace App\Http\Controllers\Customer;
+
+use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+
+class AddressController extends Controller
+{
+    public function index(Request $request)
+    {
+        return view('customer.addresses.index', [
+            'addresses' => $request->user()->addresses()->orderByDesc('is_default')->get(),
+        ]);
+    }
+}

@@ -33,7 +33,7 @@ class ProductPolicy
      */
     public function view(?User $user, Product $product): bool
     {
-        if ($product->status === 'published') {
+        if ($product->isPublished() && $product->shop?->is_verified) {
             return true;
         }
 
@@ -49,7 +49,7 @@ class ProductPolicy
      */
     public function create(User $user): bool
     {
-        return $user->hasRole('artisan')
+        return $user->checkPermissionTo('products.create')
             && $user->shop !== null
             && $user->shop->is_verified;
     }
@@ -60,7 +60,7 @@ class ProductPolicy
      */
     public function update(User $user, Product $product): bool
     {
-        return $user->shop !== null && $user->shop->id === $product->shop_id;
+        return $user->checkPermissionTo('products.update') && $this->ownsProduct($user, $product);
     }
 
     /**
@@ -68,6 +68,11 @@ class ProductPolicy
      */
     public function delete(User $user, Product $product): bool
     {
-        return $user->shop !== null && $user->shop->id === $product->shop_id;
+        return $user->checkPermissionTo('products.delete') && $this->ownsProduct($user, $product);
+    }
+
+    private function ownsProduct(User $user, Product $product): bool
+    {
+        return $user->shop !== null && (int) $user->shop->id === (int) $product->shop_id;
     }
 }

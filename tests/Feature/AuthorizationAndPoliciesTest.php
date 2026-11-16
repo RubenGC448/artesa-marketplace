@@ -1,237 +1,100 @@
 <?php
 
-namespace Tests\Feature;
+/*
+|--------------------------------------------------------------------------
+| Sprint 3 · Roles, zonas y rutas (convertido a sintaxis Pest)
+|--------------------------------------------------------------------------
+| Las pruebas detalladas de cada policy están en tests/Feature/Policies.
+*/
 
-use App\Models\Address;
-use App\Models\Category;
-use App\Models\Order;
-use App\Models\OrderProduct;
-use App\Models\OrderShop;
 use App\Models\Product;
-use App\Models\Review;
-use App\Models\Shop;
 use App\Models\User;
 use Database\Seeders\RoleAndPermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Gate;
-use Tests\TestCase;
 
-class AuthorizationAndPoliciesTest extends TestCase
-{
-    use RefreshDatabase;
+uses(RefreshDatabase::class);
 
-    protected function setUp(): void
-    {
-        parent::setUp();
+beforeEach(function () {
+    $this->seed(RoleAndPermissionSeeder::class);
+});
 
-        // Ejecutamos el seeder de roles y permisos antes de cada test
-        $this->seed(RoleAndPermissionSeeder::class);
-    }
+it('asigna los cinco roles con sus permisos', function () {
+    expect(userWithRole('admin')->can('shops.verify'))->toBeTrue()
+        ->and(userWithRole('moderator')->can('disputes.resolve'))->toBeTrue();
 
-    public function test_roles_and_permissions_are_properly_assigned(): void
-    {
-        $admin = User::factory()->create();
-        $admin->assignRole('admin');
+    $artisan = userWithRole('artisan');
+    expect($artisan->can('products.create'))->toBeTrue()
+        ->and($artisan->can('shops.verify'))->toBeFalse();
 
-        $artisan = User::factory()->create();
-        $artisan->assignRole('artisan');
+    $customer = userWithRole('customer');
+    expect($customer->can('orders.create'))->toBeTrue()
+        ->and($customer->can('products.create'))->toBeFalse();
 
-        $customer = User::factory()->create();
-        $customer->assignRole('customer');
+    expect(userWithRole('courier')->can('orders.update_status'))->toBeTrue();
+});
 
-        $courier = User::factory()->create();
-        $courier->assignRole('courier');
+it('redirige al login a los invitados que entran en zonas privadas', function (string $url) {
+    $this->get($url)->assertRedirect('/login');
+})->with(['/admin', '/artisan', '/customer', '/courier', '/artisan/products', '/customer/orders']);
 
-        $this->assertTrue($admin->hasRole('admin'));
-        $this->assertTrue($admin->can('shops.verify'));
+it('devuelve 403 al entrar en la zona de otro rol', function () {
+    $customer = userWithRole('customer');
 
-        $this->assertTrue($artisan->hasRole('artisan'));
-        $this->assertTrue($artisan->can('products.create'));
-        $this->assertFalse($artisan->can('shops.verify'));
+    $this->actingAs($customer)->get('/admin')->assertForbidden();
+    $this->actingAs($customer)->get('/artisan')->assertForbidden();
+    $this->actingAs($customer)->get('/courier')->assertForbidden();
+    $this->actingAs($customer)->get('/customer')->assertOk();
+});
 
-        $this->assertTrue($customer->hasRole('customer'));
-        $this->assertTrue($customer->can('orders.create'));
-        $this->assertFalse($customer->can('products.create'));
+it('permite a cada rol entrar en su panel', function (string $role, string $url) {
+    $user = $role === 'artisan' ? artisanWithShop() : userWithRole($role);
 
-        $this->assertTrue($courier->hasRole('courier'));
-        $this->assertTrue($courier->can('orders.update_status'));
-    }
+    $this->actingAs($user)->get($url)->assertOk();
+})->with([
+    ['admin', '/admin'],
+    ['moderator', '/admin'],
+    ['artisan', '/artisan'],
+    ['customer', '/customer'],
+    ['courier', '/courier'],
+]);
 
-    public function test_guest_is_redirected_from_protected_modular_routes(): void
-    {
-        $this->get('/admin')->assertRedirect('/login');
-        $this->get('/artisan')->assertRedirect('/login');
-        $this->get('/customer')->assertRedirect('/login');
-        $this->get('/courier')->assertRedirect('/login');
-    }
+it('lleva a cada usuario a su panel tras el login', function (string $role, string $route) {
+    $this->actingAs(userWithRole($role))->get('/dashboard')->assertRedirect(route($route));
+})->with([
+    ['admin', 'admin.dashboard'],
+    ['artisan', 'artisan.dashboard'],
+    ['customer', 'customer.dashboard'],
+    ['courier', 'courier.dashboard'],
+]);
 
-    public function test_user_without_correct_role_receives_forbidden_status(): void
-    {
-        $customer = User::factory()->create();
-        $customer->assignRole('customer');
+it('da el rol de cliente a quien se registra', function () {
+    $this->post('/register', [
+        'name' => 'Nueva Clienta',
+        'email' => 'nueva@example.com',
+        'password' => 'password',
+        'password_confirmation' => 'password',
+    ])->assertRedirect(route('dashboard', absolute: false));
 
-        // Un cliente no puede entrar a la zona de administración ni del artesano
-        $this->actingAs($customer)->get('/admin')->assertForbidden();
-        $this->actingAs($customer)->get('/artisan')->assertForbidden();
-        $this->actingAs($customer)->get('/courier')->assertForbidden();
+    expect(User::where('email', 'nueva@example.com')->first()->hasRole('customer'))->toBeTrue();
+});
 
-        // Pero sí accede a su propia zona de cliente
-        $this->actingAs($customer)->get('/customer')->assertOk();
-    }
+it('deja la zona pública abierta a los invitados', function () {
+    $product = catalogProduct(artisanWithShop()->shop, ['title' => 'Jarrón azul cobalto']);
 
-    public function test_authorized_users_can_access_their_respective_modular_panels(): void
-    {
-        $admin = User::factory()->create();
-        $admin->assignRole('admin');
+    $this->get('/')->assertOk();
+    $this->get(route('catalog.index'))->assertOk()->assertSee('Jarrón azul cobalto');
+    $this->get(route('catalog.index', ['q' => 'cobalto']))->assertOk()->assertSee('Jarrón azul cobalto');
+    $this->get(route('catalog.index', ['q' => 'inexistente']))->assertOk()->assertDontSee('Jarrón azul cobalto');
+    $this->get(route('catalog.show', $product))->assertOk()->assertSee('Jarrón azul cobalto');
+    $this->get(route('shops.show', $product->shop))->assertOk();
+});
 
-        $artisan = User::factory()->create();
-        $artisan->assignRole('artisan');
+it('oculta al público borradores y talleres sin verificar', function () {
+    $draft = catalogProduct(artisanWithShop()->shop, ['status' => Product::STATUS_DRAFT]);
+    $unverifiedShop = artisanWithShop(['is_verified' => false])->shop;
+    $fromUnverified = catalogProduct($unverifiedShop);
 
-        $courier = User::factory()->create();
-        $courier->assignRole('courier');
-
-        $this->actingAs($admin)->get('/admin')->assertOk();
-        $this->actingAs($artisan)->get('/artisan')->assertOk();
-        $this->actingAs($courier)->get('/courier')->assertOk();
-    }
-
-    public function test_shop_policy_enforces_strict_isolation_between_artisans(): void
-    {
-        $artisanA = User::factory()->create();
-        $artisanA->assignRole('artisan');
-        $shopA = Shop::factory()->create(['user_id' => $artisanA->id, 'is_verified' => true]);
-
-        $artisanB = User::factory()->create();
-        $artisanB->assignRole('artisan');
-        $shopB = Shop::factory()->create(['user_id' => $artisanB->id, 'is_verified' => true]);
-
-        $admin = User::factory()->create();
-        $admin->assignRole('admin');
-
-        // Artesano A puede editar su propio taller
-        $this->assertTrue(Gate::forUser($artisanA)->allows('update', $shopA));
-
-        // Aislamiento: Artesano A NO puede editar el taller de Artesano B
-        $this->assertFalse(Gate::forUser($artisanA)->allows('update', $shopB));
-
-        // Super Admin tiene bypass global
-        $this->assertTrue(Gate::forUser($admin)->allows('update', $shopB));
-    }
-
-    public function test_product_policy_prevents_modifying_products_from_other_shops(): void
-    {
-        $artisanA = User::factory()->create();
-        $artisanA->assignRole('artisan');
-        $shopA = Shop::factory()->create(['user_id' => $artisanA->id, 'is_verified' => true]);
-
-        $artisanB = User::factory()->create();
-        $artisanB->assignRole('artisan');
-        $shopB = Shop::factory()->create(['user_id' => $artisanB->id, 'is_verified' => true]);
-
-        $category = Category::factory()->create();
-        $productA = Product::factory()->create(['shop_id' => $shopA->id, 'category_id' => $category->id]);
-        $productB = Product::factory()->create(['shop_id' => $shopB->id, 'category_id' => $category->id]);
-
-        // Artesano A edita su propio producto
-        $this->assertTrue(Gate::forUser($artisanA)->allows('update', $productA));
-
-        // Aislamiento: Artesano A no puede editar el producto del taller B
-        $this->assertFalse(Gate::forUser($artisanA)->allows('update', $productB));
-
-        // Artesano A no puede borrar el producto del taller B
-        $this->assertFalse(Gate::forUser($artisanA)->allows('delete', $productB));
-    }
-
-    public function test_order_policy_restricts_suborder_management_to_the_owner_shop(): void
-    {
-        $customer = User::factory()->create();
-        $customer->assignRole('customer');
-        $address = Address::factory()->create(['user_id' => $customer->id]);
-
-        $artisanA = User::factory()->create();
-        $artisanA->assignRole('artisan');
-        $shopA = Shop::factory()->create(['user_id' => $artisanA->id]);
-
-        $artisanB = User::factory()->create();
-        $artisanB->assignRole('artisan');
-        $shopB = Shop::factory()->create(['user_id' => $artisanB->id]);
-
-        $order = Order::factory()->create(['customer_id' => $customer->id, 'address_id' => $address->id]);
-
-        $suborderA = OrderShop::factory()->create(['order_id' => $order->id, 'shop_id' => $shopA->id]);
-        $suborderB = OrderShop::factory()->create(['order_id' => $order->id, 'shop_id' => $shopB->id]);
-
-        // Artesano A solo gestiona el subpedido de su taller
-        $this->assertTrue(Gate::forUser($artisanA)->allows('manageSuborder', $suborderA));
-        $this->assertFalse(Gate::forUser($artisanA)->allows('manageSuborder', $suborderB));
-    }
-
-    public function test_order_cancellation_policy(): void
-    {
-        $customer = User::factory()->create();
-        $customer->assignRole('customer');
-        $address = Address::factory()->create(['user_id' => $customer->id]);
-
-        $pendingOrder = Order::factory()->create([
-            'customer_id' => $customer->id,
-            'address_id' => $address->id,
-            'status' => 'pending',
-        ]);
-
-        $preparingOrder = Order::factory()->create([
-            'customer_id' => $customer->id,
-            'address_id' => $address->id,
-            'status' => 'preparing',
-        ]);
-
-        // Cliente puede cancelar en 'pending'
-        $this->assertTrue(Gate::forUser($customer)->allows('cancel', $pendingOrder));
-
-        // Cliente NO puede cancelar si ya está en confección 'preparing'
-        $this->assertFalse(Gate::forUser($customer)->allows('cancel', $preparingOrder));
-    }
-
-    public function test_review_policy_requires_delivered_purchase_before_reviewing(): void
-    {
-        $customer = User::factory()->create();
-        $customer->assignRole('customer');
-        $address = Address::factory()->create(['user_id' => $customer->id]);
-
-        $artisan = User::factory()->create();
-        $artisan->assignRole('artisan');
-        $shop = Shop::factory()->create(['user_id' => $artisan->id]);
-
-        $category = Category::factory()->create();
-        $product = Product::factory()->create(['shop_id' => $shop->id, 'category_id' => $category->id]);
-
-        // 1. Sin compra previa, no puede reseñar
-        $this->assertFalse(Gate::forUser($customer)->allows('create', [Review::class, $product]));
-
-        // 2. Crea un pedido que aún está en 'preparing'
-        $preparingOrder = Order::factory()->create([
-            'customer_id' => $customer->id,
-            'address_id' => $address->id,
-            'status' => 'preparing',
-        ]);
-        $suborder = OrderShop::factory()->create(['order_id' => $preparingOrder->id, 'shop_id' => $shop->id]);
-        OrderProduct::factory()->create([
-            'order_id' => $preparingOrder->id,
-            'order_shop_id' => $suborder->id,
-            'product_id' => $product->id,
-        ]);
-
-        $this->assertFalse(Gate::forUser($customer)->allows('create', [Review::class, $product]));
-
-        // 3. Cambia a 'delivered': Ahora la policy autoriza la reseña verificada
-        $preparingOrder->update(['status' => 'delivered']);
-        $this->assertTrue(Gate::forUser($customer)->allows('create', [Review::class, $product]));
-
-        // 4. Si ya existe la reseña, no se le permite duplicar valoración
-        Review::factory()->create([
-            'product_id' => $product->id,
-            'customer_id' => $customer->id,
-            'order_id' => $preparingOrder->id,
-        ]);
-        $this->assertFalse(Gate::forUser($customer)->allows('create', [Review::class, $product]));
-    }
-}
+    $this->get(route('catalog.show', $draft))->assertNotFound();
+    $this->get(route('catalog.show', $fromUnverified))->assertNotFound();
+    $this->get(route('shops.show', $unverifiedShop))->assertNotFound();
+});

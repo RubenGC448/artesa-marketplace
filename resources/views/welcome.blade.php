@@ -1,6 +1,4 @@
-<!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
-    <head>
-        <h1>Hola prueba 1</h1>
-    </body>
-</html>
+{{-- La portada real es public/home (HomeController). Se mantiene por compatibilidad. --}}
+<x-public-layout>
+    <a href="{{ route('home') }}">{{ __('Ir a la portada') }}</a>
+</x-public-layout>

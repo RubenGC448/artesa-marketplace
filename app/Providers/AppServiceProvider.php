@@ -10,6 +10,7 @@ use App\Models\Review;
 use App\Models\Shop;
 use App\Policies\DisputePolicy;
 use App\Policies\OrderPolicy;
+use App\Policies\OrderShopPolicy;
 use App\Policies\ProductPolicy;
 use App\Policies\ReviewPolicy;
 use App\Policies\ShopPolicy;
@@ -35,7 +36,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(Shop::class, ShopPolicy::class);
         Gate::policy(Product::class, ProductPolicy::class);
         Gate::policy(Order::class, OrderPolicy::class);
-        Gate::policy(OrderShop::class, OrderPolicy::class);
+        Gate::policy(OrderShop::class, OrderShopPolicy::class);
         Gate::policy(Review::class, ReviewPolicy::class);
         Gate::policy(Dispute::class, DisputePolicy::class);
     }
